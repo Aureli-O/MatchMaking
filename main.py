@@ -370,7 +370,11 @@ def compute_all_edges(users: List[Dict], per_user_k: int = 5):
 # %% 
 # Streamlit app
 
-st.set_page_config(page_title='Matchmaking Graph', layout='wide')
+st.set_page_config(
+    page_title='Matchmaking',
+    layout='wide',
+    page_icon="✨"
+    )
 st.title('Matchmaking — Demo')
 
 with st.sidebar:
