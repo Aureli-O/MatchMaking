@@ -122,12 +122,12 @@ def contains_sensitive_keywords(text: str) -> bool:
 @st.cache_resource
 def load_multilingual_classifier():
     # Multilíngue → pega direto em PT-BR, ES etc.
-    return pipeline("text-classification", model="martin-ha/toxic-comment-model", framework="pt")
+    return pipeline("text-classification", model="martin-ha/toxic-comment-model")
 
 @st.cache_resource
 def load_english_classifier():
     # Inglês → mais robusto para hate speech explícito
-    return pipeline("text-classification", model="facebook/roberta-hate-speech-dynabench-r4-target", framework="pt")
+    return pipeline("text-classification", model="facebook/roberta-hate-speech-dynabench-r4-target")
 
 multilingual_classifier = load_multilingual_classifier()
 english_classifier = load_english_classifier()
