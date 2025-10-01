@@ -1,29 +1,13 @@
-# --- Banco de dados ---
 supabase
-
-# --- Frontend / UI ---
 streamlit
 streamlit-supabase-auth
-streamlit-components  # pode ser apenas streamlit, mas algumas vezes precisa especificar extras
-
-# --- Tradução ---
 deep-translator
-
-# --- IA / NLP ---
 together
 transformers
-
-# --- Manipulação de dados ---
 pandas
 numpy
-
-# --- Visualização ---
 pyvis
 umap-learn
-
-# --- Machine Learning / Estatística ---
 scikit-learn
 scipy
-
-# --- Utilidades ---
 python-dotenv
