@@ -1,0 +1,24 @@
+# ambientes virtuais
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+
+# arquivos de sistema
+.DS_Store
+
+# env / secrets
+.env
+*.env
+
+# arquivos temporários
+*.log
+graph_temp.html
+graph_tmp.html
+
+# seed / dados locais que não devem ir pro repo
+seed_users.py
+
+# streamlit local state
+.streamlit/
