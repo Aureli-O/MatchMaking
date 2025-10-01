@@ -3,6 +3,7 @@ streamlit
 streamlit-supabase-auth
 deep-translator
 together
+torch
 transformers
 pandas
 numpy
