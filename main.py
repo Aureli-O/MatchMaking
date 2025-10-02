@@ -380,10 +380,6 @@ st.title('Matchmaking — Demo')
 with st.sidebar:
     st.header('Login')
 
-    st.markdown('''
-    **Autenticação:** use o login com Google (via Supabase).
-    ''')
-
     # login só com Google
     session = login_form(
         url=SUPABASE_URL,
@@ -418,10 +414,8 @@ with st.sidebar:
         st.image(avatar, width=80)
 
     logout_button(apiKey=SUPABASE_ANON_KEY, url=SUPABASE_URL)
-# Main panel: formulário
-# Nota: o restante do código usa st.session_state['user'] no original; aqui usamos a 'user' obtida via session
-# para compatibilidade podemos popular st.session_state['user'] se desejar:
-# popula session_state sem sobrescrever o ID
+
+
 if 'user' not in st.session_state:
     # guarda o user completo (não só nome/email), para não perder o "id"
     st.session_state['user'] = user
@@ -430,24 +424,25 @@ if 'user' not in st.session_state:
 if 'user' in st.session_state:
     # agora pega o ID direto do session_state
     session_user = st.session_state['user']
+    st.markdown("Escreva seus gostos (ex: filmes, hobbies, comidas, interesses)",help="Dê preferência em texto corrido")
     preferences_input = st.text_area(
-        'Escreva seus gostos (ex: filmes, hobbies, comidas, interesses)',
-        height=150
+        height=150,
+        placeholder="Gosto de futebol, videogames e música eletrônica, mas não sou fã de leitura extensa ou dançar."
     )
     user_color = st.color_picker("Escolha sua cor no grafo", "#1f77b4")
 
     col_groups_input, col_selected_group = st.columns([3,1])
     with col_groups_input:
+        st.markdown("Grupos",help="use vírgulas, ex: #global, #turma1")
         groups_input = st.text_input(
-            "Grupos (use vírgulas, ex: #global, #turma1, #trabalho1)",
-            "#global"
+            value = "#global"
         )
         user_groups = [g.strip() for g in groups_input.split(",") if g.strip()]
         if not user_groups:
             user_groups = ["#global"]
 
     with col_selected_group:
-        selected_group = st.selectbox("Selecione o grupo para gerar o grafo", user_groups)
+        selected_group = st.selectbox("Selecione o grupo", user_groups)
 
     if st.button('Enviar'):
         with st.spinner('Processando...'):
