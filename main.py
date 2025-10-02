@@ -377,12 +377,13 @@ st.set_page_config(
     )
 st.title('Matchmaking — Demo')
 
+st.markdown('''**Bem-vindo(a)!** 👋            
+Para continuar, faça login com sua conta do Google.
+Você encontra a opção no menu lateral.'''
+)
+
 with st.sidebar:
     st.header('Login')
-
-    st.markdown('''
-    **Autenticação:** use o login com Google (via Supabase).
-    ''')
 
     # login só com Google
     session = login_form(
