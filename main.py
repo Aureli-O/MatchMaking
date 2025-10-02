@@ -424,18 +424,20 @@ if 'user' not in st.session_state:
 if 'user' in st.session_state:
     # agora pega o ID direto do session_state
     session_user = st.session_state['user']
-    st.markdown("Escreva seus gostos (ex: filmes, hobbies, comidas, interesses)",help="Dê preferência em texto corrido")
     preferences_input = st.text_area(
+        "Escreva seus gostos (ex: filmes, hobbies, comidas, interesses)",
+        help="Dê preferência em texto corrido",
         height=150,
-        placeholder="Gosto de futebol, videogames e música eletrônica, mas não sou fã de leitura extensa ou dançar."
+        placeholder="Gosto de futebol, videogames e música eletrônica, mas não sou fã de leitura extensa ou dançar.",
     )
     user_color = st.color_picker("Escolha sua cor no grafo", "#1f77b4")
 
     col_groups_input, col_selected_group = st.columns([3,1])
     with col_groups_input:
-        st.markdown("Grupos",help="use vírgulas, ex: #global, #turma1")
         groups_input = st.text_input(
-            value = "#global"
+            "Grupos",
+            help="Use vírgulas, ex: #global, #turma1",
+            placeholder="#global",
         )
         user_groups = [g.strip() for g in groups_input.split(",") if g.strip()]
         if not user_groups:
