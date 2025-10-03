@@ -449,7 +449,9 @@ if 'user' in st.session_state:
     if st.button('Enviar'):
         with st.spinner('Processando...'):
             try:
-                if not is_safe_input(preferences_input):
+                if not preferences_input.strip():
+                    st.error("⚠️ O campo de preferências não pode estar vazio.")
+                elif not is_safe_input(preferences_input):
                     st.error("⚠️ O texto contém termos sensíveis ou tóxicos e não pode ser enviado.")
                 else:
                     translated = translate_to_english(preferences_input)
