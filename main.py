@@ -411,7 +411,10 @@ with st.sidebar:
 
     st.success(f"Conectado: {display_name}")
     if avatar:
-        st.image(avatar, width=80)
+        # centraliza a imagem usando 3 colunas e colocando a imagem na do meio
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.image(avatar, width=80)
 
     logout_button(apiKey=SUPABASE_ANON_KEY, url=SUPABASE_URL)
 
@@ -447,7 +450,10 @@ if 'user' in st.session_state:
         selected_group = st.selectbox("Selecione o grupo", user_groups)
 
     # substitui os dois botões anteriores por este único fluxo combinado
-    if st.button('Enviar e Gerar grafo'):
+    if st.button(
+        'Enviar e Gerar grafo',
+        help ="O grafo conecta pessoas com interesses semelhantes — quanto mais próximos os nós, maior a afinidade entre os usuários.",
+        ):
         with st.spinner('Processando e gerando grafo...'):
             try:
                 # Validações
@@ -498,9 +504,13 @@ if 'user' in st.session_state:
 
                     # 4) resultado do upsert
                     if resp is None:
-                        st.error("❌ Falha ao salvar os dados")
+                        st.error("Falha ao salvar os dados", icon ="❌")
                     else:
-                        st.success('✅ Dados salvos!')
+                        success_box = st.empty()
+                        success_box.success("Dados salvos!", icon ="✅")
+                        time.sleep(1)
+                        success_box.empty()
+
 
                     # 5) gerar grafo (feedback com progress)
                     progress = st.progress(0)
@@ -531,8 +541,6 @@ if 'user' in st.session_state:
             except Exception as e:
                 st.error(f'❌ Ocorreu um erro: {e}')
                 st.stop()
-    else:
-        st.info('Faça login para acessar o formulário e gerar o grafo.')
 
 # %%
 # 9) Observações finais e próximos passos (executar manualmente ou adaptar)
