@@ -439,8 +439,8 @@ if 'user' in st.session_state:
     with col_groups_input:
         groups_input = st.text_input(
             "Grupos",
-            help="Use vírgulas, ex: #global, #turma1",
-            placeholder="#global",
+            help="Use vírgulas. Caso deixe esse campo vazio, aparecerá todos os usuários",
+            placeholder="#global, #trabalho",
         )
         user_groups = [g.strip() for g in groups_input.split(",") if g.strip()]
         if not user_groups:
@@ -452,7 +452,8 @@ if 'user' in st.session_state:
     # substitui os dois botões anteriores por este único fluxo combinado
     if st.button(
         'Enviar e Gerar grafo',
-        help ="O grafo conecta pessoas com interesses semelhantes — quanto mais próximos os nós, maior a afinidade entre os usuários.",
+        help ="O grafo conecta pessoas com interesses semelhantes." \
+        "Quanto mais próximos os nós, maior a afinidade entre os usuários.",
         ):
         with st.spinner('Processando e gerando grafo...'):
             try:
@@ -508,7 +509,7 @@ if 'user' in st.session_state:
                     else:
                         success_box = st.empty()
                         success_box.success("Dados salvos!", icon ="✅")
-                        time.sleep(1)
+                        time.sleep(2)
                         success_box.empty()
 
 
