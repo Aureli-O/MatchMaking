@@ -446,68 +446,93 @@ if 'user' in st.session_state:
     with col_selected_group:
         selected_group = st.selectbox("Selecione o grupo", user_groups)
 
-    if st.button('Enviar'):
-        with st.spinner('Processando...'):
+    # substitui os dois botões anteriores por este único fluxo combinado
+    if st.button('Enviar e Gerar grafo'):
+        with st.spinner('Processando e gerando grafo...'):
             try:
+                # Validações
                 if not preferences_input.strip():
                     st.error("⚠️ O campo de preferências não pode estar vazio.")
                 elif not is_safe_input(preferences_input):
                     st.error("⚠️ O texto contém termos sensíveis ou tóxicos e não pode ser enviado.")
                 else:
+                    # 1) traduz + gera embedding
                     translated = translate_to_english(preferences_input)
                     emb = text_to_embeddings(translated)
 
-                    user = st.session_state['user']
+                    # 2) informações do usuário (robustas)
+                    session_user = st.session_state.get('user', {})
+                    user_id = session_user.get("id") or session_user.get("sub") or session_user.get("user_metadata", {}).get("provider_id")
+                    user_email = session_user.get("email") or user.get("email")  # fallback
+                    user_name = session_user.get("name") or display_name
+                    user_photo = session_user.get("photo_url") or avatar
 
-                    # 🔑 pega o id do Supabase Auth (auth.uid)
-                    user_id = user.get("id") or user.get("sub") or user.get("user_metadata", {}).get("provider_id")
-                    user_email = user.get("email") or session_user.get("email")
-
-                    if not user_id:
-                        st.error("Erro: ID do usuário não encontrado (auth.uid). Faça login novamente.")
+                    if not user_email:
+                        st.error("Erro: email do usuário não encontrado. Faça login novamente.")
                         st.stop()
 
-                    # chama upsert (usa supabase_admin se for configurado)
-                    resp = upsert_user(
-                        user_id=user_id,
-                        name=display_name,
-                        email=user_email,
-                        photo_url=avatar,
-                        preferences=preferences_input,
-                        embedding=emb,
-                        groups=user_groups,
-                        user_color=user_color
-                    )
+                    # 3) tenta chamar upsert com/sem user_id (compatibilidade)
+                    try:
+                        # tenta versão que aceita user_id primeiro
+                        resp = upsert_user(
+                            user_id=user_id,
+                            name=user_name,
+                            email=user_email,
+                            photo_url=user_photo,
+                            preferences=preferences_input,
+                            embedding=emb,
+                            groups=user_groups,
+                            user_color=user_color
+                        )
+                    except TypeError:
+                        # assinatura alternativa sem user_id
+                        resp = upsert_user(
+                            name=user_name,
+                            email=user_email,
+                            photo_url=user_photo,
+                            preferences=preferences_input,
+                            embedding=emb,
+                            groups=user_groups,
+                            user_color=user_color
+                        )
 
-                    # debug simples
+                    # 4) resultado do upsert
                     if resp is None:
-                        st.error("❌ Falha ao salvar os dados (veja logs do servidor).")
+                        st.error("❌ Falha ao salvar os dados")
                     else:
-                        st.success('Dados salvos!')
-                    time.sleep(1)
+                        st.success('✅ Dados salvos!')
+
+                    # 5) gerar grafo (feedback com progress)
+                    progress = st.progress(0)
+                    progress.progress(20)
+
+                    # busca usuários (respeitando consentimento dentro de get_all_users ou seu filtro)
+                    users = get_all_users()
+                    progress.progress(40)
+
+                    # filtra pelo grupo selecionado
+                    filtered_users = filter_users_by_group(users, selected_group)
+                    progress.progress(60)
+
+                    clean_users = [u for u in filtered_users if u.get('embedding')]
+                    edges = compute_all_edges(clean_users, per_user_k=5)
+                    progress.progress(80)
+
+                    net = build_pyvis_graph(clean_users, edges, notebook=False)
+
+                    tmpfile = 'graph_tmp.html'
+                    net.save_graph(tmpfile)
+                    with open(tmpfile, 'r', encoding='utf-8') as f:
+                        html = f.read()
+
+                    progress.progress(100)
+                    components.html(html, height=710, scrolling=True)
+                    progress.empty()
             except Exception as e:
                 st.error(f'❌ Ocorreu um erro: {e}')
                 st.stop()
-
-    if st.button('Gerar grafo'):
-        with st.spinner('Buscando usuários e gerando grafo...'):
-            users = get_all_users()
-
-            # 🔎 filtra usuários pelo grupo selecionado
-            filtered_users = filter_users_by_group(users, selected_group)
-
-            clean_users = [u for u in filtered_users if u.get('embedding')]
-
-            edges = compute_all_edges(clean_users, per_user_k=5)
-            net = build_pyvis_graph(clean_users, edges, notebook=False)
-
-            tmpfile = 'graph_tmp.html'
-            net.save_graph(tmpfile)
-            with open(tmpfile, 'r', encoding='utf-8') as f:
-                html = f.read()
-            components.html(html, height=710, scrolling=True)
-else:
-    st.info('Faça login para acessar o formulário e gerar o grafo.')
+    else:
+        st.info('Faça login para acessar o formulário e gerar o grafo.')
 
 # %%
 # 9) Observações finais e próximos passos (executar manualmente ou adaptar)
