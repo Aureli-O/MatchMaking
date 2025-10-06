@@ -190,7 +190,7 @@ def ensure_table_exists():
         print("Could not create table programmatically. Please create the 'users' table manually in Supabase SQL Editor.", e)
 
 def upsert_user(user_id: str, name: str, email: str, photo_url: str, preferences: str,
-                embedding: List[float], groups: List[str], user_color: str):
+                embedding: List[float], groups: List[str], user_color: str, consent: bool = True):
     """Insere ou atualiza usuário no Supabase.
 
     Usa o cliente admin (service role) se estiver disponível para evitar RLS ao gravar
@@ -212,7 +212,8 @@ def upsert_user(user_id: str, name: str, email: str, photo_url: str, preferences
             "preferences": preferences,
             "embedding": emb_to_save,
             "groups": groups,
-            "user_color": user_color
+            "user_color": user_color,
+            "consent": bool(consent)
         }
 
         # Usa cliente admin se disponível (ignora RLS)
