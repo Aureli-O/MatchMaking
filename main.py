@@ -190,7 +190,7 @@ def ensure_table_exists():
         print("Could not create table programmatically. Please create the 'users' table manually in Supabase SQL Editor.", e)
 
 def upsert_user(user_id: str, name: str, email: str, photo_url: str, preferences: str,
-                embedding: List[float], groups: List[str], user_color: str):
+                embedding: List[float], groups: List[str], user_color: str, consent: bool = False):
     """Insere ou atualiza usuário no Supabase.
 
     Usa o cliente admin (service role) se estiver disponível para evitar RLS ao gravar
@@ -212,7 +212,8 @@ def upsert_user(user_id: str, name: str, email: str, photo_url: str, preferences
             "preferences": preferences,
             "embedding": emb_to_save,
             "groups": groups,
-            "user_color": user_color
+            "user_color": user_color,
+            "consent": consent
         }
 
         # Usa cliente admin se disponível (ignora RLS)
@@ -424,15 +425,57 @@ if 'user' not in st.session_state:
     st.session_state['user'] = user
 
 
+# --- INÍCIO: bloco a substituir na UI principal (após login) ---
+
+# garantir que st.session_state['consent_accepted'] exista
+if 'consent_accepted' not in st.session_state:
+    st.session_state['consent_accepted'] = False
+
+# pega o usuário da sessão
 if 'user' in st.session_state:
-    # agora pega o ID direto do session_state
     session_user = st.session_state['user']
+    user_id = session_user.get("id") or session_user.get("sub") or session_user.get("user_metadata", {}).get("provider_id")
+    # tentar ler consent do banco (se usuário existir)
+    consent_from_db = False
+    try:
+        if user_id:
+            resp = supabase.table("users").select("consent").eq("id", user_id).maybe_single().execute()
+            # alguns SDKs retornam .data diretamente; adaptamos aos dois casos
+            resp_data = getattr(resp, "data", resp)
+            if resp_data:
+                # se maybe_single, resp_data pode ser dict ou list
+                if isinstance(resp_data, dict):
+                    consent_from_db = bool(resp_data.get("consent", False))
+                elif isinstance(resp_data, list) and len(resp_data) > 0:
+                    consent_from_db = bool(resp_data[0].get("consent", False))
+    except Exception as e:
+        print("Erro ao checar consent no DB:", e)
+        consent_from_db = False
+
+    # decide mostrar ou não a caixa de consentimento:
+    show_consent_ui = (not consent_from_db) and (not st.session_state.get('consent_accepted', False))
+
+    # --- Exibe o termo de consentimento abaixo do título (apenas se necessário) ---
+    if show_consent_ui:
+        st.markdown("### Termo de Consentimento")
+        st.markdown(
+            "Ao aceitar, você autoriza que suas informações (nome, email, foto, preferências e embeddings) "
+            "sejam usadas para gerar conexões e exibir seu perfil no grafo de afinidade. "
+            "Você pode revogar esse consentimento a qualquer momento removendo seus dados ou marcando `consent=false`."
+        )
+        consent_checkbox = st.checkbox("✅ Eu concordo que minhas informações sejam usadas para gerar matches")
+    else:
+        # se já consentiu no DB ou localmente, definimos a variável local como True (para esconder UI)
+        consent_checkbox = True
+        st.session_state['consent_accepted'] = True
+
+    # --- O formulário de preferências ---
     preferences_input = st.text_area(
         "Escreva seus gostos (ex: filmes, hobbies, comidas, interesses)",
         help="Dê preferência em texto corrido",
         height=150,
-        placeholder="Gosto de futebol, videogames e música eletrônica, mas não sou fã de leitura extensa ou dançar.",
     )
+
     user_color = st.color_picker("Escolha sua cor no grafo", "#1f77b4")
 
     col_groups_input, col_selected_group = st.columns([3,1])
@@ -449,11 +492,8 @@ if 'user' in st.session_state:
     with col_selected_group:
         selected_group = st.selectbox("Selecione o grupo", user_groups)
 
-    # substitui os dois botões anteriores por este único fluxo combinado
-    if st.button(
-        'Enviar e Gerar grafo',
-        help ="O grafo conecta pessoas com interesses semelhantes.",
-        ):
+    # Botão único: envia e gera grafo
+    if st.button('Enviar e Gerar grafo', help="O grafo conecta pessoas com interesses semelhantes."):
         with st.spinner('Processando e gerando grafo...'):
             try:
                 # Validações
@@ -461,6 +501,9 @@ if 'user' in st.session_state:
                     st.error("⚠️ O campo de preferências não pode estar vazio.")
                 elif not is_safe_input(preferences_input):
                     st.error("⚠️ O texto contém termos sensíveis ou tóxicos e não pode ser enviado.")
+                elif not consent_checkbox:
+                    # não permite prosseguir se a UI de consentimento estava visível e não marcada
+                    st.error("⚠️ Você precisa aceitar o termo de consentimento para prosseguir.")
                 else:
                     # 1) traduz + gera embedding
                     translated = translate_to_english(preferences_input)
@@ -477,40 +520,26 @@ if 'user' in st.session_state:
                         st.error("Erro: email do usuário não encontrado. Faça login novamente.")
                         st.stop()
 
-                    # 3) tenta chamar upsert com/sem user_id (compatibilidade)
-                    try:
-                        # tenta versão que aceita user_id primeiro
-                        resp = upsert_user(
-                            user_id=user_id,
-                            name=user_name,
-                            email=user_email,
-                            photo_url=user_photo,
-                            preferences=preferences_input,
-                            embedding=emb,
-                            groups=user_groups,
-                            user_color=user_color
-                        )
-                    except TypeError:
-                        # assinatura alternativa sem user_id
-                        resp = upsert_user(
-                            name=user_name,
-                            email=user_email,
-                            photo_url=user_photo,
-                            preferences=preferences_input,
-                            embedding=emb,
-                            groups=user_groups,
-                            user_color=user_color
-                        )
+                    resp = upsert_user(
+                        user_id=user_id,
+                        name=user_name,
+                        email=user_email,
+                        photo_url=user_photo,
+                        preferences=preferences_input,
+                        embedding=emb,
+                        groups=user_groups,
+                        user_color=user_color,
+                        consent=True
+                    )
 
-                    # 4) resultado do upsert
                     if resp is None:
-                        st.error("Falha ao salvar os dados", icon ="❌")
+                        st.error("Falha ao salvar os dados", icon="❌")
                     else:
                         success_box = st.empty()
-                        success_box.success("Dados salvos!", icon ="✅")
+                        success_box.success("Dados salvos!", icon="✅")
+                        st.session_state['consent_accepted'] = True
                         time.sleep(2)
                         success_box.empty()
-
 
                     # 5) gerar grafo (feedback com progress)
                     progress = st.progress(0)
