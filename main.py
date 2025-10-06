@@ -379,20 +379,6 @@ st.set_page_config(
 st.title('Matchmaking — Demo')
 
 with st.sidebar:
-    st.header('Login')
-
-    st.markdown('''
-    **Autenticação:** use o login com Google (via Supabase).
-    ''')
-
-    # Termos em expander (opcional: substitua pelo texto real)
-    with st.expander("📜 Termos de uso (clique para ler)"):
-        st.markdown("""
-        Ao marcar **Aceito**, você concorda que:
-        - Seu nome, e-mail e preferências poderão ser usados para criar um grafo de afinidades;
-        - Seus dados não serão compartilhados fora desta aplicação sem consentimento;
-        - Você pode revogar o consentimento removendo seu registro.
-        """)
 
     # Se já temos user em session_state, mostramos o mini-perfil + logout
     if st.session_state.get("user"):
@@ -414,18 +400,31 @@ with st.sidebar:
             display_name = metadata.get("full_name") or metadata.get("name") or user.get("email") or "Usuário"
             avatar = metadata.get("avatar_url") or user.get("avatar_url") or None
 
-            # mini-profile centralizado: imagem no meio e nome abaixo
+            st.success(f"Conectado: {display_name}")
             if avatar:
                 col1, col2, col3 = st.columns([1, 2, 1])
                 with col2:
                     st.image(avatar, width=80)
-            st.markdown(f"**{display_name}**")
             st.caption(user.get("email") or "")
 
             # logout
             logout_button(apiKey=SUPABASE_ANON_KEY, url=SUPABASE_URL)
 
     else:
+        st.header('Login')
+
+        st.markdown('''
+        **Autenticação:** use o login com Google.
+        ''')
+
+        with st.expander("📜 Termos de uso (clique para ler)"):
+            st.markdown("""
+            Ao marcar **Aceito**, você concorda que:
+            - Seu nome, e-mail e preferências poderão ser usados para criar um grafo de afinidades;
+            - Seus dados não serão compartilhados fora desta aplicação sem consentimento;
+            - Você pode revogar o consentimento removendo seu registro.
+            """)
+
         # não logado: pede consentimento para habilitar o login
         consent_checkbox = st.checkbox(
             "✅ Li e aceito que minhas informações sejam usadas.",
@@ -445,8 +444,7 @@ with st.sidebar:
                 user = session.get("user") or {}
                 st.session_state["user"] = user
                 st.session_state["consent_given"] = True
-                st.success("Login efetuado! Continue na página — a interface será atualizada automaticamente.")
-                # NÃO chama st.experimental_rerun() — deixa o Streamlit reavaliar normalmente.
+                st.success("Login efetuado!")
 
         else:
             st.info("Por favor, marque o consentimento acima!")
