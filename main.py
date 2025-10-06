@@ -443,23 +443,11 @@ with st.sidebar:
             # se login realizado, grava user completo no session_state
             if session:
                 user = session.get("user") or {}
+                st.session_state["user"] = user
+                st.session_state["consent_given"] = True
+                st.success("Login efetuado! Continue na página — a interface será atualizada automaticamente.")
+                # NÃO chama st.experimental_rerun() — deixa o Streamlit reavaliar normalmente.
 
-                # tenta extrair ID imediatamente (evita problemas depois)
-                user_id = (
-                    user.get("id") or
-                    user.get("sub") or
-                    user.get("user_metadata", {}).get("provider_id") or
-                    None
-                )
-                if not user_id:
-                    st.error("Erro: não foi possível recuperar o ID do usuário (auth.uid). Faça login novamente.")
-                else:
-                    # guarda o objeto de usuário completo para uso posterior
-                    st.session_state["user"] = user
-                    st.session_state["consent_given"] = True
-
-                    # opcional: mostrar mini perfil logo após login (a página re-renderiza)
-                    st.experimental_rerun()
         else:
             st.info("Por favor, marque o consentimento acima!")
 
