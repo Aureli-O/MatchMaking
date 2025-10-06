@@ -381,43 +381,53 @@ st.title('Matchmaking — Demo')
 with st.sidebar:
     st.header('Login')
 
-    # login só com Google
+    # login só com Google (pode retornar None até o usuário logar)
     session = login_form(
         url=SUPABASE_URL,
         apiKey=SUPABASE_ANON_KEY,
         providers=["google"],
     )
 
-    if not session:
-        st.info("Faça login com Google para continuar.")
-        st.stop()
+    # se houver sessão, pega o user e exibe info na sidebar
+    if session:
+        user = session.get("user") or {}
 
-    user = session.get("user") or {}
+        # 🔑 tenta várias chaves possíveis para obter auth.uid
+        user_id = (
+            user.get("id") or
+            user.get("sub") or
+            user.get("user_metadata", {}).get("provider_id") or
+            None
+        )
 
-    # 🔑 garante o auth.uid (tenta várias chaves possíveis)
-    user_id = (
-        user.get("id") or                      # padrão Supabase Auth
-        user.get("sub") or                     # fallback para alguns OAuth
-        user.get("user_metadata", {}).get("provider_id") or  # fallback Google
-        None
-    )
-    if not user_id:
-        st.error("Erro: não foi possível recuperar o ID do usuário (auth.uid).")
-        st.stop()
+        if not user_id:
+            st.error("Erro: não foi possível recuperar o ID do usuário (auth.uid).")
+        else:
+            user_email = user.get("email")
+            metadata = user.get("user_metadata", {}) if isinstance(user, dict) else {}
+            display_name = metadata.get("full_name") or metadata.get("name") or user_email or "Usuário"
+            avatar = metadata.get("avatar_url") or user.get("avatar_url") or None
 
-    user_email = user.get("email")
-    metadata = user.get("user_metadata", {}) if isinstance(user, dict) else {}
-    display_name = metadata.get("full_name") or metadata.get("name") or user.get("email") or "Usuário"
-    avatar = metadata.get("avatar_url") or user.get("avatar_url") or None
+            st.success(f"Conectado: {display_name}")
+            if avatar:
+                col1, col2, col3 = st.columns([1, 2, 1])
+                with col2:
+                    st.image(avatar, width=80)
 
-    st.success(f"Conectado: {display_name}")
-    if avatar:
-        # centraliza a imagem usando 3 colunas e colocando a imagem na do meio
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.image(avatar, width=80)
+            logout_button(apiKey=SUPABASE_ANON_KEY, url=SUPABASE_URL)
 
-    logout_button(apiKey=SUPABASE_ANON_KEY, url=SUPABASE_URL)
+    else:
+        # sem sessão: mostra prompt de login na sidebar (não fazemos st.stop() aqui)
+        pass
+
+# --- Fora da sidebar: se não há sessão, mostramos mensagem central e interrompemos a execução ---
+if not session:
+    st.info("Por favor, faça login no menu lateral (à esquerda) para continuar.")
+    st.stop()
+
+# A partir daqui, session existe e é seguro usar `session.get("user")` e outras variáveis
+user = session.get("user") or {}
+# ... resto do teu código que depende do user ...
 
 # guarda o user completo no session_state (mantém id)
 if 'user' not in st.session_state:
@@ -469,14 +479,17 @@ if 'user' in st.session_state:
     consent_given = st.session_state.get('consent_given', False)
     consent_checkbox_checked = False
     if not consent_given:
-        with st.expander("📜 Termos de uso e consentimento (clique para ver)"):
-            st.markdown("""
-            Ao aceitar, você concorda que seu nome, email, foto, gostos e embeddings serão utilizados
-            para gerar conexões e exibir o grafo de afinidades nesta aplicação.  
-            Você pode revogar o consentimento a qualquer momento removendo seus dados.
-            """)
+        col_termos_text, col_checkbox = st.columns([3,1])
+        with col_termos_text:
+            with st.expander("📜 Termos de uso e consentimento (clique para ver)"):
+                st.markdown("""
+                Ao aceitar, você concorda que seu nome, email, foto e gostos serão utilizados
+                para gerar conexões e exibir o grafo de afinidades nesta aplicação.  
+                Você pode revogar o consentimento a qualquer momento removendo seus dados.
+                """)
+        with col_checkbox:
         # a checkbox controla se o botão ficará habilitado
-        consent_checkbox_checked = st.checkbox("✅ Aceito que minhas informações sejam usadas para gerar matches", key="consent_checkbox")
+            consent_checkbox_checked = st.checkbox("✅ Aceito o uso das minhas informações!", key="consent_checkbox")
         send_disabled = not consent_checkbox_checked
     else:
         send_disabled = False  # já consentiu antes
