@@ -190,7 +190,7 @@ def ensure_table_exists():
         print("Could not create table programmatically. Please create the 'users' table manually in Supabase SQL Editor.", e)
 
 def upsert_user(user_id: str, name: str, email: str, photo_url: str, preferences: str,
-                embedding: List[float], groups: List[str], user_color: str):
+                embedding: List[float], groups: List[str], user_color: str, consent: bool = True):
     """Insere ou atualiza usuário no Supabase.
 
     Usa o cliente admin (service role) se estiver disponível para evitar RLS ao gravar
@@ -212,7 +212,8 @@ def upsert_user(user_id: str, name: str, email: str, photo_url: str, preferences
             "preferences": preferences,
             "embedding": emb_to_save,
             "groups": groups,
-            "user_color": user_color
+            "user_color": user_color,
+            "consent": bool(consent)
         }
 
         # Usa cliente admin se disponível (ignora RLS)
@@ -374,59 +375,103 @@ st.set_page_config(
     page_title='Matchmaking',
     layout='wide',
     page_icon="✨"
-    )
+)
 st.title('Matchmaking — Demo')
 
 with st.sidebar:
     st.header('Login')
 
-    # login só com Google
-    session = login_form(
-        url=SUPABASE_URL,
-        apiKey=SUPABASE_ANON_KEY,
-        providers=["google"],
-    )
+    st.markdown('''
+    **Autenticação:** use o login com Google (via Supabase).
+    ''')
 
-    if not session:
-        st.info("Faça login com Google para continuar.")
-        st.stop()
+    # Termos em expander (opcional: substitua pelo texto real)
+    with st.expander("📜 Termos de uso (clique para ler)"):
+        st.markdown("""
+        Ao marcar **Aceito**, você concorda que:
+        - Seu nome, e-mail e preferências poderão ser usados para criar um grafo de afinidades;
+        - Seus dados não serão compartilhados fora desta aplicação sem consentimento;
+        - Você pode revogar o consentimento removendo seu registro.
+        """)
 
-    user = session.get("user") or {}
+    # Se já temos user em session_state, mostramos o mini-perfil + logout
+    if st.session_state.get("user"):
+        user = st.session_state["user"] or {}
 
-    # 🔑 garante o auth.uid (tenta várias chaves possíveis)
-    user_id = (
-        user.get("id") or                      # padrão Supabase Auth
-        user.get("sub") or                     # fallback para alguns OAuth
-        user.get("user_metadata", {}).get("provider_id") or  # fallback Google
-        None
-    )
-    if not user_id:
-        st.error("Erro: não foi possível recuperar o ID do usuário (auth.uid).")
-        st.stop()
+        # tenta garantir auth.uid a partir das possíveis chaves
+        user_id = (
+            user.get("id") or
+            user.get("sub") or
+            user.get("user_metadata", {}).get("provider_id") or
+            None
+        )
 
-    user_email = user.get("email")
-    metadata = user.get("user_metadata", {}) if isinstance(user, dict) else {}
-    display_name = metadata.get("full_name") or metadata.get("name") or user.get("email") or "Usuário"
-    avatar = metadata.get("avatar_url") or user.get("avatar_url") or None
+        if not user_id:
+            st.error("Erro: não foi possível recuperar o ID do usuário (auth.uid).")
+        else:
+            # pegar dados legíveis
+            metadata = user.get("user_metadata", {}) if isinstance(user, dict) else {}
+            display_name = metadata.get("full_name") or metadata.get("name") or user.get("email") or "Usuário"
+            avatar = metadata.get("avatar_url") or user.get("avatar_url") or None
 
-    st.success(f"Conectado: {display_name}")
-    if avatar:
-        # centraliza a imagem usando 3 colunas e colocando a imagem na do meio
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.image(avatar, width=80)
+            # mini-profile centralizado: imagem no meio e nome abaixo
+            if avatar:
+                col1, col2, col3 = st.columns([1, 2, 1])
+                with col2:
+                    st.image(avatar, width=80)
+            st.markdown(f"**{display_name}**")
+            st.caption(user.get("email") or "")
 
-    logout_button(apiKey=SUPABASE_ANON_KEY, url=SUPABASE_URL)
+            # logout
+            logout_button(apiKey=SUPABASE_ANON_KEY, url=SUPABASE_URL)
 
+    else:
+        # não logado: pede consentimento para habilitar o login
+        consent_checkbox = st.checkbox(
+            "✅ Li e aceito que minhas informações sejam usadas.",
+            key="consent_checkbox"
+        )
 
-if 'user' not in st.session_state:
-    # guarda o user completo (não só nome/email), para não perder o "id"
-    st.session_state['user'] = user
+        if consent_checkbox:
+            # permite o login com Google (aparece botão)
+            session = login_form(
+                url=SUPABASE_URL,
+                apiKey=SUPABASE_ANON_KEY,
+                providers=["google"],
+            )
 
+            # se login realizado, grava user completo no session_state
+            if session:
+                user = session.get("user") or {}
 
-if 'user' in st.session_state:
-    # agora pega o ID direto do session_state
+                # tenta extrair ID imediatamente (evita problemas depois)
+                user_id = (
+                    user.get("id") or
+                    user.get("sub") or
+                    user.get("user_metadata", {}).get("provider_id") or
+                    None
+                )
+                if not user_id:
+                    st.error("Erro: não foi possível recuperar o ID do usuário (auth.uid). Faça login novamente.")
+                else:
+                    # guarda o objeto de usuário completo para uso posterior
+                    st.session_state["user"] = user
+                    st.session_state["consent_given"] = True
+
+                    # opcional: mostrar mini perfil logo após login (a página re-renderiza)
+                    st.experimental_rerun()
+        else:
+            st.info("Por favor, marque o consentimento acima!")
+
+# === Main page / formulário ===
+# Se o usuário **não** está logado (session/session_state vazio) mostramos um texto explicativo no corpo principal:
+if not st.session_state.get('user'):
+    st.markdown("**Bem-vindo!** Para usar o Matchmaking você precisa aceitar os termos no lado esquerdo e fazer login com Google.")
+    # NÃO interrompemos com st.stop() aqui — permitimos que o usuário marque a caixa e faça login.
+else:
+    # já logado — segue o formulário normal
     session_user = st.session_state['user']
+    # Mantemos seu formulário existente (texto, cor, grupos, botões, etc.)
     preferences_input = st.text_area(
         "Escreva seus gostos (ex: filmes, hobbies, comidas, interesses)",
         help="Dê preferência em texto corrido",
@@ -449,11 +494,11 @@ if 'user' in st.session_state:
     with col_selected_group:
         selected_group = st.selectbox("Selecione o grupo", user_groups)
 
-    # substitui os dois botões anteriores por este único fluxo combinado
+    # Fluxo combinado: enviar + gerar grafo
     if st.button(
         'Enviar e Gerar grafo',
         help ="O grafo conecta pessoas com interesses semelhantes.",
-        ):
+    ):
         with st.spinner('Processando e gerando grafo...'):
             try:
                 # Validações
@@ -469,17 +514,16 @@ if 'user' in st.session_state:
                     # 2) informações do usuário (robustas)
                     session_user = st.session_state.get('user', {})
                     user_id = session_user.get("id") or session_user.get("sub") or session_user.get("user_metadata", {}).get("provider_id")
-                    user_email = session_user.get("email") or user.get("email")  # fallback
-                    user_name = session_user.get("name") or display_name
-                    user_photo = session_user.get("photo_url") or avatar
+                    user_email = session_user.get("email") or None
+                    user_name = session_user.get("user_metadata", {}).get("full_name") or session_user.get("user_metadata", {}).get("name") or user_email or "Usuário"
+                    user_photo = session_user.get("user_metadata", {}).get("avatar_url") or session_user.get("avatar_url") or None
 
                     if not user_email:
                         st.error("Erro: email do usuário não encontrado. Faça login novamente.")
                         st.stop()
 
-                    # 3) tenta chamar upsert com/sem user_id (compatibilidade)
+                    # 3) chama upsert gravando consent = True
                     try:
-                        # tenta versão que aceita user_id primeiro
                         resp = upsert_user(
                             user_id=user_id,
                             name=user_name,
@@ -488,18 +532,21 @@ if 'user' in st.session_state:
                             preferences=preferences_input,
                             embedding=emb,
                             groups=user_groups,
-                            user_color=user_color
+                            user_color=user_color,
+                            consent=True
                         )
                     except TypeError:
-                        # assinatura alternativa sem user_id
+                        # fallback (caso alguma chamada anterior use outra assinatura)
                         resp = upsert_user(
+                            user_id=user_id,
                             name=user_name,
                             email=user_email,
                             photo_url=user_photo,
                             preferences=preferences_input,
                             embedding=emb,
                             groups=user_groups,
-                            user_color=user_color
+                            user_color=user_color,
+                            consent=True
                         )
 
                     # 4) resultado do upsert
@@ -511,12 +558,12 @@ if 'user' in st.session_state:
                         time.sleep(2)
                         success_box.empty()
 
-
                     # 5) gerar grafo (feedback com progress)
                     progress = st.progress(0)
                     progress.progress(20)
 
                     # busca usuários (respeitando consentimento dentro de get_all_users ou seu filtro)
+                    # Nota: recomendo que get_all_users já filtre por consent=True se quiser reforçar.
                     users = get_all_users()
                     progress.progress(40)
 
