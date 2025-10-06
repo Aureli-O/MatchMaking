@@ -442,9 +442,19 @@ with st.sidebar:
             # se login realizado, grava user completo no session_state
             if session:
                 user = session.get("user") or {}
+
+                # guarda o objeto de usuário completo para uso posterior
                 st.session_state["user"] = user
                 st.session_state["consent_given"] = True
-                st.success("Login efetuado!")
+
+                # Mostra confirmação e evita chamar experimental_rerun diretamente
+                st.success("Login efetuado! Você já pode usar a aplicação.")
+                # Opcional: tentar rerun com fallback seguro
+                try:
+                    st.experimental_rerun()
+                except Exception:
+                    # fallback não-fatal: apenas informa e segue (a página será re-renderizada pelo Streamlit automaticamente)
+                    st.info("Se a interface não atualizar automaticamente, atualize a página (F5).")
         else:
             st.info("Por favor, marque o consentimento acima!")
 
