@@ -484,12 +484,11 @@ if 'user' in st.session_state:
             with st.expander("📜 Termos de uso e consentimento (clique para ver)"):
                 st.markdown("""
                 Ao aceitar, você concorda que seu nome, email, foto e gostos serão utilizados
-                para gerar conexões e exibir o grafo de afinidades nesta aplicação.  
-                Você pode revogar o consentimento a qualquer momento removendo seus dados.
+                para gerar conexões e exibir o grafo de afinidades nesta aplicação de cunho educacional.
                 """)
         with col_checkbox:
         # a checkbox controla se o botão ficará habilitado
-            consent_checkbox_checked = st.checkbox("✅ Aceito o uso das minhas informações!", key="consent_checkbox")
+            consent_checkbox_checked = st.checkbox("✅ Aceito o uso!", key="consent_checkbox")
         send_disabled = not consent_checkbox_checked
     else:
         send_disabled = False  # já consentiu antes
