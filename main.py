@@ -453,12 +453,35 @@ if 'user' in st.session_state:
     # agora pega o ID direto do session_state
     session_user = st.session_state['user']
 
+    # --- PREENCHER O CAMPO DE PREFERÊNCIAS COM VALOR SALVO (SE HOUVER) ---
+    # Fazemos a busca uma vez por sessão para evitar chamadas repetidas ao DB
+    if 'existing_preferences' not in st.session_state:
+        st.session_state['existing_preferences'] = ""  # default vazio
+        try:
+            # garante que user_id exista
+            uid = session_user.get("id") or session_user.get("sub") or session_user.get("user_metadata", {}).get("provider_id")
+            if uid:
+                resp = supabase.table("users").select("preferences").eq("id", uid).execute()
+                data = resp.data if hasattr(resp, 'data') else resp
+                if data:
+                    # resp.data geralmente é uma lista com um dict (ou [] se não existir)
+                    row = data[0] if isinstance(data, list) else data
+                    prefs = row.get("preferences") if row else None
+                    if prefs:
+                        st.session_state['existing_preferences'] = prefs
+        except Exception as e:
+            # não pare a execução por esse erro; apenas loga
+            print("Could not fetch existing preferences:", e)
+
+    # usa o valor recuperado como valor inicial do text_area
     preferences_input = st.text_area(
         "Escreva seus gostos (ex: filmes, hobbies, comidas, interesses)",
+        value=st.session_state.get('existing_preferences', ""),
         help="Dê preferência em texto corrido",
         height=150,
         placeholder="Gosto de futebol, videogames e música eletrônica, mas não sou fã de leitura extensa ou dançar.",
     )
+
     user_color = st.color_picker("Escolha sua cor no grafo", "#1f77b4")
 
     col_groups_input, col_selected_group = st.columns([3,1])
