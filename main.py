@@ -491,9 +491,18 @@ if 'user' in st.session_state:
             help="Use vírgulas para separar os grupos.\nCaso deixe esse campo vazio, aparecerá todos os usuários",
             placeholder="#global, #trabalho",
         )
-        user_groups = [g.strip() for g in groups_input.split(",") if g.strip()]
-        if not user_groups:
-            user_groups = ["#global"]
+
+        # processa apenas as outras tags; filtra vazios e evita re-incluir '#global'
+        user_other_groups = [g.strip() for g in groups_input.split(",") if g.strip() and g.strip() != "#global"]
+
+        # monta user_groups garantindo #global sempre presente (na frente) e sem duplicatas
+        user_groups_candidate = ["#global"] + user_other_groups
+        seen = set()
+        user_groups = []
+        for g in user_groups_candidate:
+            if g not in seen:
+                seen.add(g)
+                user_groups.append(g)
 
     with col_selected_group:
         selected_group = st.selectbox("Selecione o grupo", user_groups)
@@ -558,7 +567,7 @@ if 'user' in st.session_state:
                             consent=True
                         )
                     except TypeError:
-                        # assinatura alternativa sem user_id (mantive compatibilidade)
+                        # fallback para assinatura sem user_id
                         resp = upsert_user(
                             name=user_name,
                             email=user_email,
