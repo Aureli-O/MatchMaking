@@ -376,7 +376,7 @@ st.set_page_config(
     layout='wide',
     page_icon="✨"
 )
-st.title('Matchmaking — Demo')
+st.title('Matchmaking')
 
 with st.sidebar:
     st.header('Login')
