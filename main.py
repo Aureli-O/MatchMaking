@@ -625,14 +625,3 @@ if 'user' in st.session_state:
                 st.stop()
 else:
     st.info('Faça login para acessar o formulário e gerar o grafo.')
-
-
-# %%
-# 9) Observações finais e próximos passos (executar manualmente ou adaptar)
-# - Autenticação real: configure Supabase Auth (Google) no dashboard do Supabase.
-#   Em produção, não use a SUPABASE_SERVICE_KEY no frontend; use rotas server-side para operações sensíveis.
-# - Schema: ajuste o tamanho do vector(1536) conforme o modelo. O exemplo usa 1536 por compatibilidade com modelos maiores.
-# - Se preferir busca vetorial nativa, habilite pgvector no Supabase e use consultas SQL para `ORDER BY embedding <-> new_embedding`.
-# - Em produção, adicione cache para embeddings e tratamento de erros mais robusto.
-
-# Fim do notebook
