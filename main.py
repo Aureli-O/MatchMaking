@@ -1,6 +1,3 @@
-# %%
-# Bibliotecas usadas
-
 from supabase import create_client
 import streamlit as st
 from deep_translator import GoogleTranslator
@@ -23,50 +20,38 @@ from streamlit_supabase_auth import login_form, logout_button
 import streamlit.components.v1 as components
 import ast
 
-# %%
-# Chaves de API (carregadas do .env) e clientes do supabase e together AI
 load_dotenv()
 
 def get_secret(key: str, default=None):
-    # 1) tenta pegar do ambiente (.env ou variáveis do sistema)
     val = os.getenv(key)
     if val:
         return val
-    # 2) tenta pegar do st.secrets (usado no Streamlit Cloud)
     try:
         return st.secrets[key]
     except Exception:
         return default
 
-# 🔹 Segredos (agora incluindo SERVICE_KEY)
 SUPABASE_URL = get_secret("SUPABASE_URL")
 SUPABASE_ANON_KEY = get_secret("SUPABASE_ANON_KEY")
-SUPABASE_SERVICE_KEY = get_secret("SUPABASE_SERVICE_KEY")  # <-- necessário para upserts/admin
+SUPABASE_SERVICE_KEY = get_secret("SUPABASE_SERVICE_KEY")
 TOGETHER_API_KEY = get_secret("TOGETHER_API_KEY")
 
-# Validar se as keys existem (ajuda no debug)
 if not SUPABASE_URL:
     raise RuntimeError("SUPABASE_URL não encontrado. Configure .env ou st.secrets.")
 if not SUPABASE_ANON_KEY:
     raise RuntimeError("SUPABASE_ANON_KEY não encontrado. Configure .env ou st.secrets.")
 if not SUPABASE_SERVICE_KEY:
-    # não falha: avisa. Idealmente configure SUPABASE_SERVICE_KEY para permitir upserts via admin.
     st.warning("SUPABASE_SERVICE_KEY não encontrado. Operações admin (upsert) podem falhar por RLS.")
 
-# 🔹 Clientes
-# Cliente público (anon) — usado para selects que respeitam RLS
 supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-# Cliente admin (service role) — usado apenas para operações administrativas/upserts
 supabase_admin = None
 if SUPABASE_SERVICE_KEY:
     supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 client = Together(api_key=TOGETHER_API_KEY)
 
-# %%
-# Função de tradução e criação de embeddings
-
+@st.cache_data(show_spinner=False)
 def translate_to_english(text: str) -> str:
     if not text:
         return ""
@@ -79,32 +64,21 @@ def translate_to_english(text: str) -> str:
 
 
 def text_to_embeddings(text: str) -> List[float]:
-    """
-    Gera embedding usando Together AI. Retorna vector (lista de floats).
-    Ajuste o model se necessário.
-    """
     if not text:
         return []
     response = client.embeddings.create(
         model="togethercomputer/m2-bert-80M-32k-retrieval",
         input=text,
     )
-    # A resposta pode ter estrutura diferente dependendo da versão do SDK
-    # Esperamos response.data -> list of objects with .embedding
     try:
         return [x.embedding for x in response.data][0]
     except Exception:
-        # tentar alternativa: response[0]
         try:
             return response[0]
         except Exception as e:
             print("Embedding parse error:", e)
             return []
 
-# %%
-# Detector de toxixidade usando keywords e modelos multilinguais
-    
-# 🚨 Lista mínima de palavras-chave proibidas (multi-idioma)
 SENSITIVE_KEYWORDS = [
     "suicídio", "ódio", "racista", "assassinato", "violência",
     "homofobia", "terrorismo", "droga", "se matar", "matar", "arma",
@@ -112,28 +86,23 @@ SENSITIVE_KEYWORDS = [
 ]
 
 def contains_sensitive_keywords(text: str) -> bool:
-    """Verifica se contém palavras-chave proibidas (anti-bypass)."""
     text_lower = text.lower()
     if any(re.search(rf"\b{re.escape(word)}\b", text_lower) for word in SENSITIVE_KEYWORDS):
         return True
     return False
 
-# 🚀 Carrega dois classificadores: multilíngue + inglês
 @st.cache_resource
 def load_multilingual_classifier():
-    # Multilíngue → pega direto em PT-BR, ES etc.
     return pipeline("text-classification", model="martin-ha/toxic-comment-model")
 
 @st.cache_resource
 def load_english_classifier():
-    # Inglês → mais robusto para hate speech explícito
     return pipeline("text-classification", model="facebook/roberta-hate-speech-dynabench-r4-target")
 
 multilingual_classifier = load_multilingual_classifier()
 english_classifier = load_english_classifier()
 
 def is_toxic_with_model(text: str, classifier, threshold: float = 0.7) -> bool:
-    """Classifica o texto com um modelo específico."""
     try:
         results = classifier(text)
         for r in results:
@@ -145,12 +114,6 @@ def is_toxic_with_model(text: str, classifier, threshold: float = 0.7) -> bool:
         return False
 
 def is_safe_input(text: str) -> bool:
-    """
-    Proteção em 3 camadas:
-    1. Regras manuais (keywords)
-    2. Modelo multilíngue
-    3. Modelo inglês (após tradução)
-    """
     if contains_sensitive_keywords(text):
         print("❌ Bloqueado por keywords")
         return False
@@ -163,9 +126,6 @@ def is_safe_input(text: str) -> bool:
         return False
 
     return True
-
-# %%
-# Helpers DB (Supabase): criação de tabela (executar apenas uma vez) e funções CRUD
 
 CREATE_TABLE_SQL = '''
 CREATE TABLE IF NOT EXISTS users (
@@ -181,27 +141,17 @@ CREATE TABLE IF NOT EXISTS users (
 '''
 
 def ensure_table_exists():
-    """Tenta criar a tabela users no Supabase (executar uma vez)."""
     try:
-        # Supabase SQL via RPC (execute_raw é método do supabase-py)
         supabase.rpc("sql", {"q": CREATE_TABLE_SQL}).execute()
     except Exception as e:
-        # Muitos projetos Supabase não usam essa rota; como alternativa, documente para criar via SQL Editor no dashboard
         print("Could not create table programmatically. Please create the 'users' table manually in Supabase SQL Editor.", e)
 
 def upsert_user(user_id: str, name: str, email: str, photo_url: str, preferences: str,
                 embedding: List[float], groups: List[str], user_color: str, consent: bool = True):
-    """Insere ou atualiza usuário no Supabase.
-
-    Usa o cliente admin (service role) se estiver disponível para evitar RLS ao gravar
-    embeddings/metadata. Se `supabase_admin` não estiver configurado, tentará usar
-    o cliente anon (que pode falhar devido a RLS).
-    """
     if not user_id:
         raise ValueError("⚠️ user_id (auth.uid) está vazio — verifique autenticação.")
 
     try:
-        # garante que embedding seja lista serializável (evita "invalid input" no Postgres)
         emb_to_save = list(embedding) if embedding is not None else None
 
         data = {
@@ -216,14 +166,11 @@ def upsert_user(user_id: str, name: str, email: str, photo_url: str, preferences
             "consent": bool(consent)
         }
 
-        # Usa cliente admin se disponível (ignora RLS)
         if supabase_admin:
             resp = supabase_admin.table("users").upsert(data, on_conflict="id").execute()
         else:
-            # fallback: usa cliente anon — pode levantar erro por RLS
             resp = supabase.table("users").upsert(data, on_conflict="id").execute()
 
-        # debug minimal
         if hasattr(resp, 'error') and resp.error:
             print("Upsert returned error:", resp.error)
         else:
@@ -235,7 +182,6 @@ def upsert_user(user_id: str, name: str, email: str, photo_url: str, preferences
         return None
 
 def get_all_users():
-    """Retorna todos usuários com embeddings, grupos e cor."""
     try:
         resp = supabase.table('users').select(
             'id,name,email,photo_url,preferences,embedding,groups,user_color'
@@ -247,27 +193,19 @@ def get_all_users():
 
     
 def filter_users_by_group(users, group: str):
-    """Filtra usuários que participam de um grupo específico."""
     return [u for u in users if group in (u.get("groups") or [])]
 
-# %%
-# Similaridade e construção de grafo
-
 def parse_embedding(emb):
-    """Converte embedding vindo como string/lista para lista de floats."""
     if isinstance(emb, str):
         try:
-            # tenta via json
             return np.array(json.loads(emb), dtype=float).flatten()
         except json.JSONDecodeError:
-            # fallback se for formato python
             return np.array(ast.literal_eval(emb), dtype=float).flatten()
     elif isinstance(emb, list) or isinstance(emb, np.ndarray):
         return np.array(emb, dtype=float).flatten()
     return None
 
 def compute_similarities(target_embedding: List[float], others: List[Dict], top_k: int = 5):
-    """Calcula distância coseno entre target e lista de outros usuários (cada other tem 'id' e 'embedding'). Retorna top_k matches."""
     distances = []
     a = parse_embedding(target_embedding)
     if a is None:
@@ -310,18 +248,14 @@ def build_pyvis_graph(users: List[Dict], edges: List[Dict], notebook: bool = Fal
         preferences = u.get('preferences') or ''
         node_color = u.get('user_color') or "#1f77b4"
 
-        # 🔹 Calcula top 5 matches do usuário
         matches = compute_similarities(u["embedding"], [v for v in users if v["id"] != uid], top_k=5)
 
-        # 🔹 Monta texto dos matches
         matches_text = "\n".join(
             [f"- {m['name']} ({round((1 - m['distance']) * 100)}%)" for m in matches]
         ) or "Nenhum match encontrado"
 
-        # 🔹 Quebra gostos em várias linhas (wrap)
         wrapped_prefs = "\n".join(wrap(preferences, width=50))
 
-        # 🔹 Monta tooltip completo
         title_text = (
             f"👤 {name}\n"
             f"📧 {email}\n\n"
@@ -336,19 +270,14 @@ def build_pyvis_graph(users: List[Dict], edges: List[Dict], notebook: bool = Fal
             color=node_color
         )
 
-    # Adiciona arestas
     for e in edges:
         net.add_edge(e['source'], e['target'], value=e.get('weight', 1))
 
     return net
 
 
-# %%
-# Função para gerar arestas a partir de todos usuários (exemplo: conectar top 5 de cada usuário)
-
 def compute_all_edges(users: List[Dict], per_user_k: int = 5):
     edges = []
-    # preparar mapa id->embedding
     id_map = {u['id']: u for u in users}
     for u in users:
         emb = u.get('embedding')
@@ -356,9 +285,8 @@ def compute_all_edges(users: List[Dict], per_user_k: int = 5):
             continue
         matches = compute_similarities(emb, [v for v in users if v['id'] != u['id']], top_k=per_user_k)
         for m in matches:
-            weight = max(0.01, 1.0 - m['distance'])  # converte distance->score simples
+            weight = max(0.01, 1.0 - m['distance'])
             edges.append({'source': u['id'], 'target': m['id'], 'weight': float(weight)})
-    # deduplicar (source,target) ordenado
     seen = set()
     unique_edges = []
     for e in edges:
@@ -367,9 +295,6 @@ def compute_all_edges(users: List[Dict], per_user_k: int = 5):
             seen.add(pair)
             unique_edges.append(e)
     return unique_edges
-
-# %% 
-# Streamlit app
 
 st.set_page_config(
     page_title='Matchmaking',
@@ -381,18 +306,15 @@ st.title('Matchmaking')
 with st.sidebar:
     st.header('Login')
 
-    # login só com Google (pode retornar None até o usuário logar)
     session = login_form(
         url=SUPABASE_URL,
         apiKey=SUPABASE_ANON_KEY,
         providers=["google"],
     )
 
-    # se houver sessão, pega o user e exibe info na sidebar
     if session:
         user = session.get("user") or {}
 
-        # 🔑 tenta várias chaves possíveis para obter auth.uid
         user_id = (
             user.get("id") or
             user.get("sub") or
@@ -417,30 +339,23 @@ with st.sidebar:
             logout_button(apiKey=SUPABASE_ANON_KEY, url=SUPABASE_URL)
 
     else:
-        # sem sessão: mostra prompt de login na sidebar (não fazemos st.stop() aqui)
         pass
 
-# --- Fora da sidebar: se não há sessão, mostramos mensagem central e interrompemos a execução ---
 if not session:
-    st.info("Por favor, faça login no menu lateral (à esquerda) para continuar.")
+    st.info("Por favor, faça login com o Google no menu lateral (à esquerda) para continuar.")
     st.stop()
 
-# A partir daqui, session existe e é seguro usar `session.get("user")` e outras variáveis
 user = session.get("user") or {}
-# ... resto do teu código que depende do user ...
 
-# guarda o user completo no session_state (mantém id)
 if 'user' not in st.session_state:
     st.session_state['user'] = user
 
-# --- Novo: verifica se já existe consentimento no banco (executa só uma vez por sessão) ---
 if 'consent_given' not in st.session_state:
     consent_flag = False
     try:
         resp = supabase.table("users").select("consent").eq("id", user_id).execute()
         data = resp.data if hasattr(resp, 'data') else resp
         if data:
-            # resp.data costuma ser lista; pega primeiro item
             row = data[0] if isinstance(data, list) else data
             consent_flag = bool(row.get('consent')) if row else False
     except Exception as e:
@@ -448,32 +363,24 @@ if 'consent_given' not in st.session_state:
         consent_flag = False
     st.session_state['consent_given'] = consent_flag
 
-# --- Interface principal ---
 if 'user' in st.session_state:
-    # agora pega o ID direto do session_state
     session_user = st.session_state['user']
 
-    # --- PREENCHER O CAMPO DE PREFERÊNCIAS COM VALOR SALVO (SE HOUVER) ---
-    # Fazemos a busca uma vez por sessão para evitar chamadas repetidas ao DB
     if 'existing_preferences' not in st.session_state:
-        st.session_state['existing_preferences'] = ""  # default vazio
+        st.session_state['existing_preferences'] = ""
         try:
-            # garante que user_id exista
             uid = session_user.get("id") or session_user.get("sub") or session_user.get("user_metadata", {}).get("provider_id")
             if uid:
                 resp = supabase.table("users").select("preferences").eq("id", uid).execute()
                 data = resp.data if hasattr(resp, 'data') else resp
                 if data:
-                    # resp.data geralmente é uma lista com um dict (ou [] se não existir)
                     row = data[0] if isinstance(data, list) else data
                     prefs = row.get("preferences") if row else None
                     if prefs:
                         st.session_state['existing_preferences'] = prefs
         except Exception as e:
-            # não pare a execução por esse erro; apenas loga
             print("Could not fetch existing preferences:", e)
 
-    # usa o valor recuperado como valor inicial do text_area
     preferences_input = st.text_area(
         "Escreva seus gostos (ex: filmes, hobbies, comidas, interesses)",
         value=st.session_state.get('existing_preferences', ""),
@@ -492,10 +399,8 @@ if 'user' in st.session_state:
             placeholder="#global, #trabalho",
         )
 
-        # processa apenas as outras tags; filtra vazios e evita re-incluir '#global'
         user_other_groups = [g.strip() for g in groups_input.split(",") if g.strip() and g.strip() != "#global"]
 
-        # monta user_groups garantindo #global sempre presente (na frente) e sem duplicatas
         user_groups_candidate = ["#global"] + user_other_groups
         seen = set()
         user_groups = []
@@ -507,7 +412,6 @@ if 'user' in st.session_state:
     with col_selected_group:
         selected_group = st.selectbox("Selecione o grupo", user_groups)
 
-    # Se usuário ainda não deu consentimento: mostra termos + checkbox
     consent_given = st.session_state.get('consent_given', False)
     consent_checkbox_checked = False
     if not consent_given:
@@ -519,33 +423,28 @@ if 'user' in st.session_state:
                 para gerar conexões e exibir o grafo de afinidades nesta aplicação de cunho educacional.
                 """)
         with col_checkbox:
-        # a checkbox controla se o botão ficará habilitado
             consent_checkbox_checked = st.checkbox("✅ Aceito o uso!", key="consent_checkbox")
         send_disabled = not consent_checkbox_checked
     else:
-        send_disabled = False  # já consentiu antes
+        send_disabled = False
 
-    # Botão unificado (desabilitado até o consentimento, se necessário)
     if st.button(
-        'Enviar e Gerar grafo',
-        help ="O grafo conecta pessoas com interesses semelhantes.",
+        'Enviar e Gerar conexões',
+        help ="As conexões são um grafo que conecta pessoas com interesses semelhantes.",
         disabled=send_disabled
     ):
-        with st.spinner('Processando e gerando grafo...'):
+        with st.spinner('Processando e gerando conexões...'):
             try:
-                # Validações de campo e segurança
                 if not preferences_input or not preferences_input.strip():
-                    st.error("⚠️ O campo de preferências não pode estar vazio.")
+                    st.error("⚠️ O campo de gostos não pode estar vazio.")
                 elif not is_safe_input(preferences_input):
                     st.error("⚠️ O texto contém termos sensíveis ou tóxicos e não pode ser enviado.")
                 else:
-                    # 1) traduz + gera embedding
                     translated = translate_to_english(preferences_input)
                     emb = text_to_embeddings(translated)
 
-                    # 2) informações do usuário (robustas)
                     user_id = session_user.get("id") or session_user.get("sub") or session_user.get("user_metadata", {}).get("provider_id")
-                    user_email = session_user.get("email") or user.get("email")  # fallback
+                    user_email = session_user.get("email") or user.get("email")
                     user_name = session_user.get("name") or display_name
                     user_photo = session_user.get("photo_url") or avatar
 
@@ -553,7 +452,6 @@ if 'user' in st.session_state:
                         st.error("Erro: email do usuário não encontrado. Faça login novamente.")
                         st.stop()
 
-                    # 3) upsert (agora passando consent explicitamente)
                     try:
                         resp = upsert_user(
                             user_id=user_id,
@@ -567,7 +465,6 @@ if 'user' in st.session_state:
                             consent=True
                         )
                     except TypeError:
-                        # fallback para assinatura sem user_id
                         resp = upsert_user(
                             name=user_name,
                             email=user_email,
@@ -579,30 +476,24 @@ if 'user' in st.session_state:
                             consent=True
                         )
 
-                    # 4) resultado do upsert
                     if resp is None:
                         st.error("Falha ao salvar os dados", icon ="❌")
                     else:
-                        # mostra mensagem de sucesso temporária
                         success_box = st.empty()
                         success_box.success("Dados salvos!", icon ="✅")
-                        # marca na sessão que o usuário deu consentimento (para não mostrar checkbox de novo)
                         st.session_state['consent_given'] = True
                         time.sleep(2)
                         success_box.empty()
 
-                    # 5) gerar grafo (feedback com progress)
                     progress = st.progress(0)
                     progress.progress(20)
 
-                    # busca usuários: apenas quem deu consentimento
                     resp = supabase.table("users").select(
                         "id,name,email,photo_url,preferences,embedding,groups,user_color,consent"
                     ).eq("consent", True).execute()
                     users = resp.data if hasattr(resp, 'data') else resp
                     progress.progress(40)
 
-                    # filtra pelo grupo selecionado
                     filtered_users = filter_users_by_group(users, selected_group)
                     progress.progress(60)
 
