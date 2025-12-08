@@ -386,7 +386,7 @@ if 'user' in st.session_state:
         value=st.session_state.get('existing_preferences', ""),
         help="Dê preferência em texto corrido",
         height=150,
-        placeholder="Gosto de futebol, videogames e música eletrônica, mas não sou fã de leitura extensa ou dançar.",
+        placeholder="Gosto de futebol, videogames e música eletrônica, mas não sou fã de leitura extensa.",
     )
 
     user_color = st.color_picker("Escolha sua cor no grafo", "#1f77b4")
@@ -419,7 +419,7 @@ if 'user' in st.session_state:
         with col_termos_text:
             with st.expander("📜 Termos de uso e consentimento (clique para ver)"):
                 st.markdown("""
-                Ao aceitar, você concorda que seu nome, email, foto e gostos serão utilizados
+                Ao aceitar, você concorda que seu nome, email e informações disponibilizadas serão utilizados
                 para gerar conexões e exibir o grafo de afinidades nesta aplicação de cunho educacional.
                 """)
         with col_checkbox:
